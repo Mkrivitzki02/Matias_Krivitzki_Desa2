@@ -1,0 +1,118 @@
+JORNADAS DEL SUR - CAMBIOS REALIZADOS
+Matías Krivitzki - Desarrollo de Aplicaciones I (práctica de parcial)
+=====================================================================
+
+Se resolvieron los pedidos 41 a 44 del README. Se cambiaron 8 archivos y se
+agregaron 2 de tests. No se tocaron: README, JSON del programa, AndroidManifest,
+ServicioLocal.kt, Mesa.kt ni AgendaImpresa.kt.
+
+
+0. COMPILACIÓN
+--------------
+Problema: el proyecto original no compilaba. Retrofit 2.11 trae OkHttp 3.14 y
+ServicioLocal usa toMediaType() / toResponseBody(), que existen desde OkHttp 4.
+Corrección (app/build.gradle.kts):
+  - Se agregó implementation("com.squareup.okhttp3:okhttp:4.12.0").
+  - Versión 1.2 -> 1.3 (versionCode 12 -> 13).
+  - Dependencias y runner para tests instrumentados.
+
+
+1. PEDIDO 42 - AGENDA PERSONAL (data/Programa.kt, AgendaRepository.kt)
+----------------------------------------------------------------------
+Riesgo: guardar() usaba @Insert(REPLACE) con charlas que venían con
+favorita = false.
+Impacto: cada descarga borraba las marcas del usuario y nunca eliminaba las
+charlas retiradas (en v3 seguía la 11; con v4 vacía quedaban las 12 viejas).
+Corrección: método reemplazarPrograma() con @Transaction que:
+  - borra las charlas que no vinieron en la instantánea,
+  - inserta las nuevas con IGNORE (entran sin marcar),
+  - actualiza título, sala, etc. de las vigentes SIN tocar la columna favorita.
+Resultado:
+  - La 11 conserva su marca cuando cambia de título y sala (v2).
+  - Una charla retirada que vuelve, vuelve sin marcar (su fila se borró).
+  - Una marca puesta o quitada mientras la petición está en curso se respeta,
+    porque la descarga nunca escribe la columna favorita.
+También: alternar(id) se reemplazó por marcar(id, valor), que fija el valor en
+lugar de invertirlo.
+
+
+2. PEDIDO 41 - PROGRAMA SIN SEÑAL (Programa.kt, Catalogo.kt, Portada.kt)
+------------------------------------------------------------------------
+Riesgo: si había un aviso de error, Catalogo mostraba solo el aviso y ocultaba
+la lista. Además no había forma de saber si alguna vez se descargó el programa.
+Impacto: sin señal el usuario perdía la lista; una v4 vacía no se distinguía de
+"nunca descargué".
+Corrección:
+  - Nueva tabla "edicion" (una fila) que se graba en la misma transacción que
+    el programa: indica que hubo al menos una descarga exitosa.
+  - Base Room versión 1 -> 2 con Migration (MIGRACION_1_2). No se usa
+    fallbackToDestructiveMigration, así se conservan los datos de los usuarios.
+    Quien ya tenía charlas guardadas cuenta como "con edición previa".
+  - Si falla con edición previa: se ve lista, detalle y favoritas, más el aviso
+    "Sin conexión: se están usando los datos guardados." en todas las pantallas.
+  - Si falla sin edición previa: mensaje y botón Reintentar.
+  - Si la descarga sale bien pero vacía (v4): "Sin charlas programadas.", y
+    sigue así al reabrir sin señal.
+  - charlas y hayEdicion empiezan en null para distinguir "todavía leyendo la
+    base" de "base vacía".
+  - Ficha de una charla retirada: "Esta charla ya no forma parte del programa."
+
+
+3. PEDIDO 43 - VOLVER AL PUNTO DE LECTURA (ProgramaModel.kt, Catalogo.kt, Portada.kt)
+-------------------------------------------------------------------------------------
+Riesgo: el filtro de tema estaba en un remember local de Catalogo y el día en un
+MutableStateFlow del ViewModel.
+Impacto: el tema se perdía al abrir una ficha o rotar; ambos se perdían si
+Android mataba el proceso.
+Corrección:
+  - Día y tema se guardan en SavedStateHandle: sobreviven a rotación y a muerte
+    del proceso, y una tarea nueva arranca sin filtros (no se usan
+    SharedPreferences ni Room para esto).
+  - La posición de la lista se guarda con rememberSaveable(LazyListState.Saver).
+  - Al cambiar un filtro la lista vuelve al principio (antes podía quedar
+    desplazada y ocultar las primeras charlas).
+  - La ficha abierta y la pestaña ya usaban rememberSaveable.
+
+
+4. PEDIDO 44 - CONTROL DE DESCARGAS (MainActivity.kt, Servicios.kt, ProgramaModel.kt, Catalogo.kt)
+---------------------------------------------------------------------------------------------------
+Riesgo: se recargaba en MainActivity.onStart() y en un LaunchedEffect(Unit) de
+Catalogo; recargar() no controlaba si ya había una petición en curso; Servicios
+se creaba dentro de cada ViewModel.
+Impacto: rotar, volver de una ficha, cambiar de pestaña o volver del fondo
+descargaban de nuevo; dos toques hacían dos peticiones; al reabrir la Activity
+se creaba otra base Room y otro contador.
+Corrección:
+  - Se quitaron las recargas de onStart() y del LaunchedEffect.
+  - Servicios es una única instancia por proceso (Servicios.de(context)).
+  - Carga automática una sola vez por proceso (reclamarCargaAutomatica con
+    AtomicBoolean), llamada desde onCreate DESPUÉS de leer el extra
+    servicio_disponible, para que la primera petición ya lo respete.
+  - recargar() guarda el Job; si sigue activo, el toque se ignora (no se
+    cancela, porque cancelar y relanzar sumaría otro intento).
+  - Tras éxito o falla se puede volver a pedir; los filtros siguen editables.
+  - Los estados se exponen como StateFlow de solo lectura.
+
+
+5. TESTS (app/src/androidTest)
+------------------------------
+CarteleraDaoTest (7) - usa las 4 ediciones reales de assets:
+  sin descarga no hay edición; v1 guarda 12 sin marcar; v2 conserva la marca y
+  actualiza título y sala; v3 retira la 11, agrega la 90 y conserva vigentes;
+  una charla que regresa vuelve sin marcar; marcas hechas durante la petición
+  se respetan; v4 vacía es una edición válida.
+MigracionTest (2): la migración 1->2 conserva las marcas y cuenta como edición
+  previa; una base vacía no inventa una edición.
+Resultado: 9/9 OK en emulador API 35.
+
+
+6. PRUEBA EN EMULADOR SIGUIENDO EL README
+-----------------------------------------
+45/45 comprobaciones OK: actualización desde la 1.2 conservando datos y los
+cuatro pedidos (v1 a v4, falla, demora de 8 s, rotación, app al fondo,
+adb shell am kill, pm clear + servicio_disponible false, contador de peticiones).
+
+
+Cómo compilar: abrir Jornadas en Android Studio con JDK 17, o
+  ./gradlew assembleDebug
+Tests: ./gradlew connectedDebugAndroidTest (con emulador abierto)
