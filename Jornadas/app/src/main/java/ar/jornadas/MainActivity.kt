@@ -14,11 +14,9 @@ class MainActivity : ComponentActivity() {
             model.mesa.disponible = intent.getBooleanExtra("servicio_disponible", true)
             intent.removeExtra("servicio_disponible")
         }
+        // Después de aplicar el extra, para que la primera petición ya lo tenga en cuenta.
+        // Ya no se recarga en onStart: rotar o volver del fondo no debe descargar.
+        model.cargaInicial()
         setContent { Portada(model) }
-    }
-
-    override fun onStart() {
-        super.onStart()
-        model.recargar()
     }
 }

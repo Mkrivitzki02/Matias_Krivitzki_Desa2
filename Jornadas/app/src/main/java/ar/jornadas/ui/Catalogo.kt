@@ -12,23 +12,36 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ar.jornadas.data.Charla
 
 @Composable
-fun Catalogo(model: ProgramaModel, abrir: (String) -> Unit) {
-    LaunchedEffect(Unit) { model.recargar() }
+fun Catalogo(model: ProgramaModel, lista: LazyListState, abrir: (String) -> Unit) {
+    // Sin LaunchedEffect: entrar a esta pestaña o volver de una ficha no descarga nada.
     val dia by model.dia.collectAsStateWithLifecycle()
-    var tema by remember { mutableStateOf("Todos") }
+    val tema by model.tema.collectAsStateWithLifecycle()
     val fichas by model.charlas.collectAsStateWithLifecycle()
-    val aviso by model.aviso.collectAsStateWithLifecycle()
+    val hayEdicion by model.hayEdicion.collectAsStateWithLifecycle()
+    val fallo by model.fallo.collectAsStateWithLifecycle()
     val cargando by model.cargando.collectAsStateWithLifecycle()
-    Selector(listOf("Ambos días", "Día 1", "Día 2"), dia) { model.dia.value = it }
+    Selector(listOf("Ambos días", "Día 1", "Día 2"), dia, model::elegirDia)
     val temas = listOf("Todos", "Android", "Datos", "Calidad")
-    Selector(temas, temas.indexOf(tema)) { tema = temas[it] }
+    Selector(temas, temas.indexOf(tema)) { model.elegirTema(temas[it]) }
     TextButton(onClick = model::recargar) { Text("Actualizar") }
     if (cargando) LinearProgressIndicator(Modifier.fillMaxWidth())
-    if (aviso.isNotEmpty()) {
-        Text(aviso)
-        OutlinedButton(onClick = model::recargar) { Text("Reintentar") }
-    } else {
-        Grilla(fichas.filter { (dia == 0 || it.dia == dia) && (tema == "Todos" || it.tema == tema) }, abrir)
+    val programa = fichas
+    when {
+        programa == null || hayEdicion == null -> Unit // todavía leyendo la base local
+        hayEdicion == false -> when {
+            fallo -> {
+                Text("No se pudo descargar el programa y todavía no hay una edición guardada.")
+                OutlinedButton(onClick = model::recargar) { Text("Reintentar") }
+            }
+            cargando -> Text("Descargando el programa…")
+            else -> OutlinedButton(onClick = model::recargar) { Text("Descargar programa") }
+        }
+        programa.isEmpty() -> Text("Sin charlas programadas.")
+        else -> {
+            val visibles = programa.filter { (dia == 0 || it.dia == dia) && (tema == "Todos" || it.tema == tema) }
+            if (visibles.isEmpty()) Text("Ninguna charla coincide con los filtros.")
+            Grilla(visibles, lista, abrir)
+        }
     }
 }
 
@@ -42,8 +55,8 @@ private fun Selector(opciones: List<String>, indice: Int, elegir: (Int) -> Unit)
 }
 
 @Composable
-fun Grilla(fichas: List<Charla>, abrir: (String) -> Unit) {
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp),
+fun Grilla(fichas: List<Charla>, lista: LazyListState = rememberLazyListState(), abrir: (String) -> Unit) {
+    LazyColumn(state = lista, verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(bottom = 12.dp)) {
         items(fichas, key = { it.id }) { ficha ->
             ElevatedCard(onClick = { abrir(ficha.id) }, modifier = Modifier.fillMaxWidth()) {

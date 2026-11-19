@@ -2,6 +2,7 @@ package ar.jornadas.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -16,7 +17,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 fun Portada(model: ProgramaModel) {
     var seccion by rememberSaveable { mutableStateOf("Programa") }
     var detalle by rememberSaveable { mutableStateOf<String?>(null) }
+    // La posición de la lista del programa se guarda acá para que sobreviva a abrir una ficha.
+    val listaPrograma = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     val charlas by model.charlas.collectAsStateWithLifecycle()
+    val hayEdicion by model.hayEdicion.collectAsStateWithLifecycle()
+    val fallo by model.fallo.collectAsStateWithLifecycle()
     BackHandler(detalle != null || seccion != "Programa") {
         if (detalle != null) detalle = null else seccion = "Programa"
     }
@@ -33,25 +38,33 @@ fun Portada(model: ProgramaModel) {
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Spacer(Modifier.height(8.dp))
                 Text("Jornadas del Sur", style = MaterialTheme.typography.labelLarge)
+                if (fallo && hayEdicion == true) {
+                    Text("Sin conexión: se están usando los datos guardados.",
+                        color = MaterialTheme.colorScheme.secondary,
+                        style = MaterialTheme.typography.labelLarge)
+                }
                 if (detalle != null) {
                     TextButton(onClick = { detalle = null }) { Text("Volver") }
-                    val ficha = charlas.find { it.id == detalle }
+                    val lista = charlas
+                    val ficha = lista?.find { it.id == detalle }
                     if (ficha != null) Column(Modifier.verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(ficha.titulo, style = MaterialTheme.typography.headlineMedium)
                         Text("Día ${ficha.dia} · ${ficha.hora} · ${ficha.sala}")
                         Text(ficha.ponente, style = MaterialTheme.typography.titleMedium)
                         Text(ficha.resumen)
-                        Button(onClick = { model.marcar(ficha.id) }) {
+                        Button(onClick = { model.marcar(ficha.id, !ficha.favorita) }) {
                             Text(if (ficha.favorita) "Quitar de mi agenda" else "Agregar a mi agenda")
                         }
+                    } else if (lista != null) {
+                        Text("Esta charla ya no forma parte del programa.")
                     }
                 } else {
                     Text(seccion, style = MaterialTheme.typography.headlineLarge)
                     when (seccion) {
-                        "Programa" -> Catalogo(model) { detalle = it }
+                        "Programa" -> Catalogo(model, listaPrograma) { detalle = it }
                         "Mi agenda" -> {
-                            val guardadas = charlas.filter { it.favorita }
+                            val guardadas = charlas.orEmpty().filter { it.favorita }
                             if (guardadas.isEmpty()) Text("Todavía no agregaste charlas.")
                             Grilla(guardadas) { detalle = it }
                         }

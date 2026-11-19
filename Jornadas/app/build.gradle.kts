@@ -10,8 +10,9 @@ android {
         applicationId = "ar.jornadas"
         minSdk = 26
         targetSdk = 34
-        versionCode = 12
-        versionName = "1.2"
+        versionCode = 13
+        versionName = "1.3"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }
     composeOptions { kotlinCompilerExtensionVersion = "1.5.14" }
@@ -34,4 +35,8 @@ dependencies {
     kapt("androidx.room:room-compiler:2.6.1")
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
+    // Retrofit 2.11 trae OkHttp 3.14; ServicioLocal usa toMediaType()/toResponseBody() de OkHttp 4.
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
 }
